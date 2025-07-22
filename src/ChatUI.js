@@ -31,6 +31,7 @@ const GET_THREAD = gql`
       id
       sender
       text
+      id
     }
   }
 `;
@@ -65,7 +66,12 @@ const ChatUI = ({ onDisconnect }) => {
 
   useEffect(() => {
     if (threadData?.getThread) {
-      setMessages(threadData.getThread);
+      setMessages(
+        threadData.getThread.map((m) => ({
+          ...m,
+          isCompleted: true,
+        }))
+      );
     }
   }, [threadData]);
 
@@ -78,14 +84,33 @@ const ChatUI = ({ onDisconnect }) => {
     if (subData?.streamMessages) {
       try {
         const parsed = JSON.parse(subData.streamMessages);
-        if (parsed.message) {
-          setMessages((prev) => [
-            ...prev,
-            { text: parsed.message, sender: parsed.sender || "bot" },
-          ]);
-        }
+        
+        const { message, sender = "bot", messageId, is_completed, thread_id } = parsed;
+        
+        if (!messageId) return;
+
+        setMessages((prev) => {
+          const index = prev.findIndex((m) => m.id === messageId);
+          
+          if (index !== -1) {
+            const updated = [...prev];
+            updated[index].text += message;
+            if (is_completed) updated[index].isCompleted = true;
+            return updated;
+          } else {
+            return [
+              ...prev,
+              {
+                sender,
+                text: message,
+                id: messageId,
+                isCompleted: is_completed || false,
+              },
+            ];
+          }
+        });
       } catch (e) {
-        console.error("Invalid message format:", e);
+        console.error("Invalid streamed message:", e);
       }
     }
   }, [subData]);
@@ -102,7 +127,15 @@ const ChatUI = ({ onDisconnect }) => {
         message: { text: input, sender: "user" },
       },
     });
-    setMessages((prev) => [...prev, { sender: "user", text: input }]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        sender: "user",
+        text: input,
+        isCompleted: true,
+        id: `temp-${Date.now()}`,
+      },
+    ]);
     setInput("");
   };
 
@@ -136,8 +169,13 @@ const ChatUI = ({ onDisconnect }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-2 bg-gradient-to-t from-purple-50 to-blue-50 rounded p-2">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            className={`flex ${
+              msg.sender === "user" ? "justify-end" : "justify-start"
+            }`}
+          >
             <div
               className={`relative max-w-[75%] p-3 text-sm rounded-2xl shadow ${
                 msg.sender === "user"
@@ -146,6 +184,11 @@ const ChatUI = ({ onDisconnect }) => {
               }`}
             >
               <ReactMarkdown>{msg.text}</ReactMarkdown>
+              {!msg.isCompleted && msg.sender !== "user" && (
+                <span className="ml-2 animate-pulse text-xs text-gray-500">
+                  ...
+                </span>
+              )}
             </div>
           </div>
         ))}
